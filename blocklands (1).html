@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Blocklands</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--ink:#211d19;--dirt:#866043}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:#8ec5ff;font:bold 14px "Lucida Console","Courier New",monospace;color:#fff;user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+#x{position:fixed;left:50%;top:50%;width:20px;height:20px;margin:-10px;pointer-events:none;mix-blend-mode:difference}
+#x:before,#x:after{content:"";position:absolute;background:#fff}
+#x:before{left:9px;top:0;width:2px;height:20px}#x:after{top:9px;left:0;height:2px;width:20px}
+#dbg{position:fixed;left:10px;top:8px;text-shadow:2px 2px 0 #000a;white-space:pre;line-height:1.5;pointer-events:none}
+#tip{position:fixed;left:0;right:0;bottom:82px;text-align:center;text-shadow:2px 2px 0 #000;opacity:0;pointer-events:none}
+#bar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:#0006;border:3px solid var(--ink)}
+.s{width:46px;height:46px;border:3px solid #3a342d;background:#0004;display:flex;align-items:center;justify-content:center;position:relative}
+.s.on{border-color:#fff;background:#fff3}
+.s i{display:block;width:32px;height:32px;image-rendering:pixelated;background-size:128px 128px}
+.s b{position:absolute;left:2px;top:-1px;font-size:10px;text-shadow:1px 1px 0 #000}
+#wet{position:fixed;inset:0;background:#1d4fd06b;display:none;pointer-events:none}
+#menu{position:fixed;inset:0;background:#140f0a99;display:flex;align-items:center;justify-content:center}
+.p{width:min(500px,92vw);padding:26px 30px 24px;border:4px solid var(--ink);background:var(--dt) var(--dirt);background-size:64px;box-shadow:inset 0 0 0 4px #ffffff22,8px 8px 0 #000a;text-align:center}
+h1{margin:0 0 8px;font-size:44px;letter-spacing:2px;color:#8fe04f;text-shadow:4px 4px 0 var(--ink)}
+.p p{margin:0;text-shadow:2px 2px 0 var(--ink)}
+.k{margin:16px 0 4px;padding:10px 14px;background:#211d19d9;text-align:left;line-height:1.7;display:grid;grid-template-columns:auto 1fr;gap:0 16px;font-size:13px}
+.k dt{color:#f2d16b}.k dd{margin:0}
+button{display:block;width:100%;margin:10px 0 0;padding:12px;font:inherit;font-size:18px;color:#fff;text-shadow:2px 2px 0 #333;background:var(--st) #7d7d7d;background-size:64px;border:3px solid var(--ink);box-shadow:inset 3px 3px 0 #fff5,inset -3px -3px 0 #0006;cursor:pointer;image-rendering:pixelated}
+button:hover,button:focus-visible{outline:3px solid #fff}
+.p,.s i{image-rendering:pixelated}
+#inv{position:fixed;inset:0;background:#140f0acc;display:none;align-items:center;justify-content:center}
+#inv .p{width:min(560px,94vw)}#ig{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:12px}
+#ig .s{width:auto;height:54px;cursor:pointer}#ig .s:hover{border-color:#f2d16b}#ig .s i{width:36px;height:36px}
+#pg{position:fixed;left:50%;top:calc(50% + 22px);height:4px;width:0;background:#fff;transform:translateX(-50%);pointer-events:none;border:1px solid #000}
+</style></head><body>
+<canvas id="g"></canvas><div id="wet"></div><div id="x"></div><div id="dbg"></div><div id="tip"></div><div id="bar"></div><div id="pg"></div>
+<div id="inv"><div class="p"><h1 style="font-size:30px">INVENTORY</h1><div id="ig"></div><p style="margin-top:12px">Click a block to put it in the selected slot. E / Esc to close.</p></div></div>
+<div id="menu"><div class="p"><h1>BLOCKLANDS</h1>
+<p>An endless blocky world. Runs offline and saves in this browser.</p>
+<dl class="k"><dt>W A S D</dt><dd>Move</dd><dt>Space</dt><dd>Jump, swim up (double-tap to fly)</dd><dt>Shift</dt><dd>Sprint, or go down while flying</dd><dt>Left click</dt><dd>Break blocks (hold)</dd><dt>Right click</dt><dd>Place block</dd><dt>1-9 / wheel</dt><dd>Choose block</dd><dt>Middle click</dt><dd>Copy the block you look at</dd><dt>F</dt><dd>Toggle flying (instant break)</dd><dt>E</dt><dd>Inventory (all blocks)</dd><dt>F3</dt><dd>Toggle info</dd></dl>
+<button id="play">Play</button><button id="neww">New world</button></div></div>
+<script>
+'use strict';
+const $=id=>document.getElementById(id),cv=$('g');
+const gl=cv.getContext('webgl',{antialias:false})||cv.getContext('experimental-webgl');
+if(!gl){document.body.innerHTML='<p style="padding:30px;color:#000">WebGL is not available in this browser.</p>';throw 0}
+const H=64,SEA=28,R=6,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const NAMES=['','Grass','Dirt','Stone','Sand','Oak Log','Leaves','Planks','Cobblestone','Glass','Water','Bricks','Bedrock','Gravel','Coal Ore','Iron Ore','Gold Ore','Diamond Ore','Snow','Crafting Table','Obsidian','Sandstone'];
+const HD=[0,.15,.15,.75,.15,.6,.1,.6,1,.2,0,.8,0,.15,1.1,1.2,1.3,1.4,.1,.6,2,.6]; // seconds to break
+// [top, side, bottom] atlas tiles per block id
+const BT=[0,[0,1,2],[2,2,2],[3,3,3],[4,4,4],[6,5,6],[7,7,7],[8,8,8],[9,9,9],[10,10,10],[11,11,11],[12,12,12],[19,19,19],[13,13,13],[14,14,14],[15,15,15],[16,16,16],[17,17,17],[18,18,18],[20,21,8],[22,22,22],[4,23,4]];
+const TR=[1,0,0,0,0,0,1,0,0,1,1,0]; // see-through blocks
+
+/* ---------- procedural textures (no image files needed) ---------- */
+const rng=s=>()=>{s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
+const jit=(b,a,r,al=255)=>{const k=(r()-.5)*a;return[b[0]+k,b[1]+k,b[2]+k,al]};
+const OR=(x,y,r,c)=>((((x>>1)*73856093)^((y>>1)*19349663))>>4&7)<2?jit(c,24,r):jit([125,125,125],30,r);
+const TL={
+0:(x,y,r)=>jit([95,160,55],44,r),
+1:(x,y,r)=>y<3+(r()<.5?1:0)?jit([95,160,55],44,r):jit([134,96,67],36,r),
+2:(x,y,r)=>jit([134,96,67],36,r),
+3:(x,y,r)=>jit([125,125,125],30,r),
+4:(x,y,r)=>jit([220,208,145],20,r),
+5:(x,y,r)=>{const o=x%4==0?-28:0;return jit([102+o,81+o,50+o],22,r)},
+6:(x,y,r)=>{const d=Math.max(Math.abs(x-7.5),Math.abs(y-7.5)),o=d>6.5?-40:((d|0)%3==0?-22:0);return jit([170+o,138+o,86+o],14,r)},
+7:(x,y,r)=>r()<.2?[0,0,0,0]:jit([50,115,30],50,r),
+8:(x,y,r)=>y%4==3?jit([120,90,50],10,r):jit([176,144,88],20,r),
+9:(x,y,r)=>{const n=((x>>1)*31+(y>>1)*17)%4;return jit([118-n*12,118-n*12,118-n*12],16,r)},
+10:(x,y)=>(x==0||y==0||x==15||y==15)?[215,240,250,255]:((x+y==6||x+y==7)&&x<7?[235,247,255,255]:[0,0,0,0]),
+11:(x,y,r)=>jit([40,90,200],20,r,150),
+12:(x,y,r)=>{const o=((y>>2)%2)*4;return(y%4==3||(x+o)%8==7)?jit([200,195,185],10,r):jit([150,72,58],25,r)},
+13:(x,y,r)=>{const n=((x*3+y*5)%7)*9;return jit([128-n,122-n,118-n],30,r)},
+14:(x,y,r)=>OR(x,y,r,[35,35,35]),15:(x,y,r)=>OR(x,y,r,[216,175,147]),16:(x,y,r)=>OR(x,y,r,[250,220,60]),17:(x,y,r)=>OR(x,y,r,[80,230,220]),
+18:(x,y,r)=>jit([245,248,255],10,r),
+19:(x,y,r)=>{const v=r()<.5?40:85;return jit([v,v,v],26,r)},
+20:(x,y,r)=>(x%8==0||y%8==0)?jit([90,62,35],10,r):jit([176,144,88],20,r),
+21:(x,y,r)=>(y<3||x==0||x==15||(x>4&&x<11&&y>6&&y<10))?jit([100,70,40],14,r):jit([176,144,88],20,r),
+22:(x,y,r)=>r()<.08?jit([100,55,150],20,r):jit([22,14,38],14,r),
+23:(x,y,r)=>y%5==0?jit([200,185,120],10,r):jit([225,212,150],14,r)};
+const at=document.createElement('canvas');at.width=at.height=128;
+{const ax=at.getContext('2d'),im=ax.createImageData(128,128);
+for(const t in TL){const r=rng(+t*977+13),ox=(t%8)*16,oy=(t>>3)*16;
+ for(let y=0;y<16;y++)for(let x=0;x<16;x++){const c=TL[t](x,y,r),i=((oy+y)*128+ox+x)*4;im.data[i]=c[0];im.data[i+1]=c[1];im.data[i+2]=c[2];im.data[i+3]=c[3]}}
+ax.putImageData(im,0,0)}
+const tileURL=t=>{const c=document.createElement('canvas');c.width=c.height=16;c.getContext('2d').drawImage(at,(t%8)*16,(t>>3)*16,16,16,0,0,16,16);return'url('+c.toDataURL()+')'};
+document.documentElement.style.setProperty('--dt',tileURL(2));document.documentElement.style.setProperty('--st',tileURL(3));
+const atU='url('+at.toDataURL()+')';
+
+/* ---------- WebGL setup ---------- */
+const VS='attribute vec3 a;attribute vec3 b;uniform mat4 M;uniform vec3 C;varying vec2 uv;varying float l;varying float d;void main(){gl_Position=M*vec4(a,1.);uv=b.xy;l=b.z;d=length(a-C);}';
+const FS='#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\nuniform sampler2D T;uniform float L,A,F0,F1;uniform vec3 S;varying vec2 uv;varying float l;varying float d;void main(){vec4 c=texture2D(T,uv);if(c.a<A)discard;c.rgb*=l*L;gl_FragColor=vec4(mix(c.rgb,S,clamp((d-F0)/(F1-F0),0.,1.)),c.a);}';
+const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);return o};
+const pg=gl.createProgram();gl.attachShader(pg,sh(gl.VERTEX_SHADER,VS));gl.attachShader(pg,sh(gl.FRAGMENT_SHADER,FS));
+gl.bindAttribLocation(pg,0,'a');gl.bindAttribLocation(pg,1,'b');gl.linkProgram(pg);gl.useProgram(pg);
+const U={};for(const n of['M','C','T','L','A','F0','F1','S'])U[n]=gl.getUniformLocation(pg,n);
+gl.enableVertexAttribArray(0);gl.enableVertexAttribArray(1);
+gl.bindTexture(gl.TEXTURE_2D,gl.createTexture());
+gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,at);
+for(const[p,v]of[[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,p,v);
+gl.uniform1i(U.T,0);gl.enable(gl.DEPTH_TEST);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+const lb=gl.createBuffer();
+
+/* ---------- matrices ---------- */
+const mul=(a,b)=>{const o=new Float32Array(16);for(let c=0;c<4;c++)for(let r=0;r<4;r++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+r]*b[c*4+k];o[c*4+r]=s}return o};
+const persp=(fov,a,n,f)=>{const t=1/Math.tan(fov/2);return new Float32Array([t/a,0,0,0,0,t,0,0,0,0,(f+n)/(n-f),-1,0,0,2*f*n/(n-f),0])};
+const rx=a=>{const c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0,0,c,s,0,0,-s,c,0,0,0,0,1])};
+const ry=a=>{const c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,0,-s,0,0,1,0,0,s,0,c,0,0,0,0,1])};
+const tr=(x,y,z)=>new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,x,y,z,1]);
+
+/* ---------- state + saving ---------- */
+let SEED=(Math.random()*1e9)|0,E={},yaw=0,pitch=0,dayT=.05,fly=false,hot=[1,2,3,8,7,5,9,4,11],slot=0,saved=null,noSave=false;
+try{saved=JSON.parse(localStorage.getItem('blocklands'))}catch(e){}
+if(saved){SEED=saved.s;E=saved.e||{};dayT=saved.t||0;fly=!!saved.f;if(saved.h)hot=saved.h}
+function save(){if(noSave)return;try{localStorage.setItem('blocklands',JSON.stringify({s:SEED,e:E,t:dayT,f:fly,h:hot,p:[P.x,P.y,P.z,yaw,pitch]}))}catch(e){}}
+
+/* ---------- terrain ---------- */
+const h2=(x,y)=>{let n=Math.imul(x|0,374761393)+Math.imul(y|0,668265263)+SEED|0;n=Math.imul(n^n>>>13,1274126177);return((n^n>>>16)>>>0)/4294967296};
+const nz=(x,y)=>{const xi=Math.floor(x),yi=Math.floor(y),fx=x-xi,fy=y-yi,u=fx*fx*(3-2*fx),v=fy*fy*(3-2*fy),a=h2(xi,yi),b=h2(xi+1,yi),c=h2(xi,yi+1),d=h2(xi+1,yi+1);return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v};
+function hgt(x,z){let n=0,a=.5,f=1/70,s=0;for(let o=0;o<4;o++){n+=a*nz(x*f,z*f);s+=a;a/=2;f*=2}n/=s;const m=nz(x/200+50,z/200-50);return Math.min(58,Math.floor(12+n*40+m*m*22))}
+const chunks=new Map(),K=(x,z)=>(x&65535)*65536+(z&65535);
+function gen(cx,cz){
+ const d=new Uint8Array(16384),hs=new Int32Array(256);
+ for(let z=0;z<16;z++)for(let x=0;x<16;x++){
+  const gx=cx*16+x,gz=cz*16+z,h=hgt(gx,gz),beach=h<=SEA+1,ds=!beach&&nz(gx/160+200,gz/160+200)>.64&&h<=46,top=beach||ds?4:(h>52?18:h>46?3:1);hs[z*16+x]=h;
+  for(let y=0;y<=h;y++){let b=y==0?12:y==h?top:y>=h-3?(beach||ds?4:(h>46?3:2)):3;
+   if(b==3){if(y<3&&h2(gx*5+y,gz*7)<.5)b=12;
+    else if(y>4&&y<h-3&&Math.abs(nz(gx/18+y/9,gz/18)-.5)<.07&&Math.abs(nz(gz/18-y/9+40,gx/18+90)-.5)<.07)b=0;
+    else{const r=h2(gx*7+y*131,gz*11+y*17);b=r<.0015&&y<14?17:r<.0045&&y<22?16:r<.012&&y<40?15:r<.03?14:nz(gx/7+y/5+99,gz/7-y/5)>.88?13:3}}
+   d[(y<<8)|(z<<4)|x]=b}
+  for(let y=h+1;y<=SEA;y++)d[(y<<8)|(z<<4)|x]=10}
+ for(let z=2;z<14;z++)for(let x=2;x<14;x++){
+  const h=hs[z*16+x],gx=cx*16+x,gz=cz*16+z;
+  if(h<=SEA+1||h>46||nz(gx/160+200,gz/160+200)>.64||h2(gx*3+7,gz*5+11)>.018)continue;
+  const th=4+(h2(gx,gz*3)*3|0);
+  for(let y=1;y<=th;y++)d[((h+y)<<8)|(z<<4)|x]=5;
+  for(let y=h+th-2;y<=h+th+1;y++){const rad=y>=h+th?1:2;
+   for(let dz=-rad;dz<=rad;dz++)for(let dx=-rad;dx<=rad;dx++){
+    if(rad==2&&Math.abs(dx)==2&&Math.abs(dz)==2&&h2(gx+dx*9,gz+dz*7+y)<.5)continue;
+    if(y==h+th+1&&Math.abs(dx)+Math.abs(dz)>1)continue;
+    const i=(y<<8)|((z+dz)<<4)|(x+dx);if(!d[i])d[i]=6}}}
+ const e=E[cx+','+cz];if(e)for(const i in e)d[i]=e[i];
+ return{x:cx,z:cz,d,dirty:true,built:false,vb:null,wb:null,n:0,wn:0};
+}
+function gb(x,y,z){if(y<0)return 3;if(y>=H)return 0;const c=chunks.get(K(x>>4,z>>4));return c?c.d[(y<<8)|((z&15)<<4)|(x&15)]:3}
+function setB(x,y,z,id){
+ const cx=x>>4,cz=z>>4,c=chunks.get(K(cx,cz));if(!c||y<0||y>=H)return;
+ const lx=x&15,lz=z&15,i=(y<<8)|(lz<<4)|lx,ek=cx+','+cz;
+ c.d[i]=id;(E[ek]=E[ek]||{})[i]=id;mesh(c);
+ const mm=(a,b)=>{const n=chunks.get(K(a,b));if(n&&n.built)mesh(n)};
+ if(lx==0)mm(cx-1,cz);if(lx==15)mm(cx+1,cz);if(lz==0)mm(cx,cz-1);if(lz==15)mm(cx,cz+1);
+}
+
+/* ---------- meshing ---------- */
+const F=[
+ {n:[1,0,0],c:[[1,0,1],[1,0,0],[1,1,0],[1,1,1]],s:.8,t:1},
+ {n:[-1,0,0],c:[[0,0,0],[0,0,1],[0,1,1],[0,1,0]],s:.8,t:1},
+ {n:[0,0,1],c:[[0,0,1],[1,0,1],[1,1,1],[0,1,1]],s:.68,t:1},
+ {n:[0,0,-1],c:[[1,0,0],[0,0,0],[0,1,0],[1,1,0]],s:.68,t:1},
+ {n:[0,1,0],c:[[0,1,1],[1,1,1],[1,1,0],[0,1,0]],s:1,t:0},
+ {n:[0,-1,0],c:[[0,0,0],[1,0,0],[1,0,1],[0,0,1]],s:.5,t:2}];
+const buf=a=>{const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(a),gl.STATIC_DRAW);return b};
+function free(c){if(c.vb)gl.deleteBuffer(c.vb);if(c.wb)gl.deleteBuffer(c.wb);c.vb=c.wb=null}
+function mesh(c){
+ free(c);const nb=[];
+ for(let dz=-1;dz<=1;dz++)for(let dx=-1;dx<=1;dx++){const n=chunks.get(K(c.x+dx,c.z+dz));nb.push(n?n.d:null)}
+ const g=(x,y,z)=>{if(y<0)return 3;if(y>=H)return 0;const q=nb[(x<0?0:x>15?2:1)+(z<0?0:z>15?2:1)*3];return q?q[(y<<8)|((z&15)<<4)|(x&15)]:3};
+ const o=[],w=[],d=c.d,bx=c.x*16,bz=c.z*16;
+ for(let y=0;y<H;y++)for(let z=0;z<16;z++)for(let x=0;x<16;x++){
+  const id=d[(y<<8)|(z<<4)|x];if(!id)continue;const a=id==10?w:o,bt=BT[id];
+  for(const f of F){
+   const b=g(x+f.n[0],y+f.n[1],z+f.n[2]);if(b&&!(TR[b]&&b!=id))continue;
+   const tl=bt[f.t],u0=(tl&7)/8+.0003,u1=(tl&7)/8+.1247,v0=(tl>>3)/8+.0003,v1=(tl>>3)/8+.1247,uv=[u0,v1,u1,v1,u1,v0,u0,v0];
+   for(const k of[0,1,2,0,2,3]){const p=f.c[k];a.push(bx+x+p[0],y+p[1],bz+z+p[2],uv[k*2],uv[k*2+1],f.s)}}}
+ c.n=o.length/6;c.wn=w.length/6;c.vb=c.n?buf(o):null;c.wb=c.wn?buf(w):null;c.dirty=false;c.built=true;
+}
+let fr=0;
+function stream(){
+ const pcx=Math.floor(P.x)>>4,pcz=Math.floor(P.z)>>4,need=[],mb=[];
+ for(let dz=-R-1;dz<=R+1;dz++)for(let dx=-R-1;dx<=R+1;dx++){const d2=dx*dx+dz*dz;if(d2>(R+1)*(R+1))continue;if(!chunks.has(K(pcx+dx,pcz+dz)))need.push([d2,pcx+dx,pcz+dz])}
+ need.sort((a,b)=>a[0]-b[0]);
+ for(let i=0;i<Math.min(2,need.length);i++)chunks.set(K(need[i][1],need[i][2]),gen(need[i][1],need[i][2]));
+ for(const c of chunks.values()){if(!c.dirty)continue;const dx=c.x-pcx,dz=c.z-pcz,d2=dx*dx+dz*dz;if(d2>R*R)continue;
+  if(chunks.has(K(c.x+1,c.z))&&chunks.has(K(c.x-1,c.z))&&chunks.has(K(c.x,c.z+1))&&chunks.has(K(c.x,c.z-1)))mb.push([d2,c])}
+ mb.sort((a,b)=>a[0]-b[0]);for(let i=0;i<Math.min(2,mb.length);i++)mesh(mb[i][1]);
+ if(++fr%120==0)for(const[k,c]of chunks)if(Math.max(Math.abs(c.x-pcx),Math.abs(c.z-pcz))>R+3){free(c);chunks.delete(k)}
+}
+
+/* ---------- player ---------- */
+const P={x:8.5,y:60,z:8.5};
+if(saved&&saved.p){P.x=saved.p[0];P.y=saved.p[1];P.z=saved.p[2];yaw=saved.p[3];pitch=saved.p[4]}
+else{let sx=8,i=0;while(hgt(sx,8)<=SEA+1&&i++<80)sx+=6;P.x=sx+.5;P.z=8.5;P.y=hgt(sx,8)+1}
+let vx=0,vy=0,vz=0,onGround=false,pb=false,locked=false,kd={},m=[0,0,0],cd=0,tg=null,lastSp=0;
+let fov=1.22,spr=false,bk={k:'',t:0},stepD=0,invO=false,AC=null;
+function snd(f,d,v){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();const t=AC.currentTime,o=AC.createOscillator(),g=AC.createGain();o.type='square';o.frequency.value=f;g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+d)}catch(e){}}
+function hit(){
+ const x0=Math.floor(P.x-.3),x1=Math.floor(P.x+.3),z0=Math.floor(P.z-.3),z1=Math.floor(P.z+.3),y0=Math.floor(P.y),y1=Math.floor(P.y+1.799);
+ for(let y=y0;y<=y1;y++)for(let z=z0;z<=z1;z++)for(let x=x0;x<=x1;x++){const b=gb(x,y,z);if(b&&b!=10)return true}
+ return false}
+function phys(dt){
+ if(!chunks.has(K(Math.floor(P.x)>>4,Math.floor(P.z)>>4)))return;
+ for(let g=0;g<70&&hit();g++)P.y++;
+ const f=(kd.KeyW?1:0)-(kd.KeyS?1:0),st=(kd.KeyD?1:0)-(kd.KeyA?1:0),sn=Math.sin(yaw),cs=Math.cos(yaw);
+ let wx=-sn*f+cs*st,wz=-cs*f-sn*st;const l=Math.hypot(wx,wz);if(l>1){wx/=l;wz/=l}
+ const wet=gb(Math.floor(P.x),Math.floor(P.y+.4),Math.floor(P.z))==10;
+ spr=!fly&&!wet&&(kd.ShiftLeft||kd.ShiftRight)&&f>0;const sp=fly?10.5:wet?2.6:((kd.ShiftLeft||kd.ShiftRight)&&f>0?6:4.3);
+ const a=Math.min(1,dt*(fly||onGround||wet?12:3.5));
+ vx+=(wx*sp-vx)*a;vz+=(wz*sp-vz)*a;
+ if(fly)vy+=(((kd.Space?1:0)-((kd.ShiftLeft||kd.ShiftRight)?1:0))*8-vy)*Math.min(1,dt*10);
+ else if(wet){vy=Math.max(vy-12*dt,-3);if(kd.Space)vy=pb?6.5:3.2}
+ else{vy=Math.max(vy-28*dt,-45);if(kd.Space&&onGround)vy=8.7}
+ pb=false;
+ P.x+=vx*dt;if(hit()){P.x-=vx*dt;vx=0;pb=true}
+ P.z+=vz*dt;if(hit()){P.z-=vz*dt;vz=0;pb=true}
+ P.y+=vy*dt;onGround=false;
+ if(hit()){if(vy<0){P.y=Math.floor(P.y)+1;onGround=true}else P.y=Math.floor(P.y+1.8)-1.801;vy=0}
+}
+function ray(o,d,max){
+ let x=Math.floor(o[0]),y=Math.floor(o[1]),z=Math.floor(o[2]),nx=0,ny=0,nz=0;
+ const sx=d[0]>0?1:-1,sy=d[1]>0?1:-1,sz=d[2]>0?1:-1;
+ const dx=d[0]===0?Infinity:Math.abs(1/d[0]),dy=d[1]===0?Infinity:Math.abs(1/d[1]),dz=d[2]===0?Infinity:Math.abs(1/d[2]);
+ let tx=d[0]===0?Infinity:(sx>0?x+1-o[0]:o[0]-x)*dx,ty=d[1]===0?Infinity:(sy>0?y+1-o[1]:o[1]-y)*dy,tz=d[2]===0?Infinity:(sz>0?z+1-o[2]:o[2]-z)*dz;
+ for(;;){
+  const b=gb(x,y,z);if(b&&b!=10)return{x,y,z,nx,ny,nz,b};
+  if(tx<ty&&tx<tz){if(tx>max)return null;x+=sx;tx+=dx;nx=-sx;ny=0;nz=0}
+  else if(ty<tz){if(ty>max)return null;y+=sy;ty+=dy;ny=-sy;nx=0;nz=0}
+  else{if(tz>max)return null;z+=sz;tz+=dz;nz=-sz;nx=0;ny=0}}
+}
+function aim(){const cp=Math.cos(pitch);tg=ray([P.x,P.y+1.62,P.z],[-Math.sin(yaw)*cp,Math.sin(pitch),-Math.cos(yaw)*cp],5.5)}
+function act(dt){
+ cd-=dt;const pg=$('pg');
+ if(!tg||!m[0]){bk.t=0;pg.style.width='0'}
+ if(!tg)return;
+ if(m[0]&&tg.y>0&&tg.b!=12){const k=tg.x+','+tg.y+','+tg.z;if(bk.k!=k){bk.k=k;bk.t=0}bk.t+=dt;const need=fly?0:HD[tg.b];
+  pg.style.width=need?Math.min(40,bk.t/need*40)+'px':'0';
+  if(bk.t>=need&&cd<=0){setB(tg.x,tg.y,tg.z,0);snd(90+Math.random()*70,.12,.08);cd=fly?.2:.05;bk.t=0;pg.style.width='0'}}
+ else if(m[2]&&cd<=0&&(tg.nx|tg.ny|tg.nz)){
+  const x=tg.x+tg.nx,y=tg.y+tg.ny,z=tg.z+tg.nz,b=gb(x,y,z);
+  if(y>=0&&y<H&&(!b||b==10)&&!(P.x-.3<x+1&&P.x+.3>x&&P.y<y+1&&P.y+1.8>y&&P.z-.3<z+1&&P.z+.3>z)){setB(x,y,z,hot[slot]);snd(170+Math.random()*50,.08,.06);cd=.2}}
+}
+
+/* ---------- rendering ---------- */
+const dr=(b,n)=>{gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.vertexAttribPointer(0,3,gl.FLOAT,false,24,0);gl.vertexAttribPointer(1,3,gl.FLOAT,false,24,12);gl.drawArrays(gl.TRIANGLES,0,n)};
+let eyeWet=false;
+function render(){
+ gl.viewport(0,0,cv.width,cv.height);
+ const sunH=Math.sin(dayT*6.2832),k=clamp(sunH*2+.5,0,1);
+ eyeWet=gb(Math.floor(P.x),Math.floor(P.y+1.62),Math.floor(P.z))==10;
+ $('wet').style.display=eyeWet?'block':'none';
+ let sk=[.02+.51*k,.03+.72*k,.08+.92*k],F0=R*8,F1=R*16-8;
+ if(eyeWet){sk=[.1,.25,.55].map(v=>v*(.3+.7*k));F0=0;F1=28}
+ gl.clearColor(sk[0],sk[1],sk[2],1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+ const eye=[P.x,P.y+1.62,P.z];
+ const M=mul(persp(fov,cv.width/cv.height,.05,300),mul(rx(-pitch),mul(ry(-yaw),tr(-eye[0],-eye[1],-eye[2]))));
+ gl.uniformMatrix4fv(U.M,false,M);gl.uniform3fv(U.C,eye);gl.uniform3fv(U.S,sk);
+ gl.uniform1f(U.L,.2+.8*k);gl.uniform1f(U.F0,F0);gl.uniform1f(U.F1,F1);
+ const fx=-Math.sin(yaw),fz=-Math.cos(yaw),vis=[];
+ for(const c of chunks.values()){if(!c.built)continue;
+  const mx=c.x*16+8-eye[0],mz=c.z*16+8-eye[2],dd=Math.hypot(mx,mz);
+  if(dd>R*16+12)continue;if(dd>24&&Math.abs(pitch)<1.1&&(mx*fx+mz*fz)/dd<-.1)continue;vis.push(c)}
+ gl.disable(gl.BLEND);gl.depthMask(true);gl.uniform1f(U.A,.5);
+ for(const c of vis)if(c.vb)dr(c.vb,c.n);
+ if(tg){const v=[],e=.003;
+  for(let i=0;i<8;i++)for(const bt of[1,2,4]){const j=i^bt;if(i<j)for(const q of[i,j])v.push(tg.x-e+(q&1)*(1+2*e),tg.y-e+((q>>1)&1)*(1+2*e),tg.z-e+((q>>2)&1)*(1+2*e),.875,.875,1)}
+  gl.bindBuffer(gl.ARRAY_BUFFER,lb);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(v),gl.DYNAMIC_DRAW);
+  gl.vertexAttribPointer(0,3,gl.FLOAT,false,24,0);gl.vertexAttribPointer(1,3,gl.FLOAT,false,24,12);gl.drawArrays(gl.LINES,0,v.length/6)}
+ gl.enable(gl.BLEND);gl.depthMask(false);gl.uniform1f(U.A,0);
+ for(const c of vis)if(c.wb)dr(c.wb,c.wn);
+ gl.depthMask(true);
+}
+
+/* ---------- interface + input ---------- */
+const bar=$('bar'),sl=[],tip=$('tip');let tipT=0;
+for(let i=0;i<9;i++){const s=document.createElement('div');s.className='s';s.innerHTML='<i></i><b>'+(i+1)+'</b>';bar.appendChild(s);sl.push(s)}
+const ic=(el,id,z)=>{const t=BT[id][1],q=el.style;q.backgroundImage=atU;q.backgroundSize=z*8+'px '+z*8+'px';q.backgroundPosition=(-(t&7)*z)+'px '+(-(t>>3)*z)+'px'};
+function refresh(){sl.forEach((s,i)=>{s.classList.toggle('on',i==slot);ic(s.firstChild,hot[i],32)})}
+function setSlot(i){slot=(i+9)%9;refresh();tip.textContent=NAMES[hot[slot]];tip.style.opacity=1;clearTimeout(tipT);tipT=setTimeout(()=>tip.style.opacity=0,1500)}
+refresh();
+{const ig=$('ig');for(let id=1;id<BT.length;id++){if(id==10)continue;const c=document.createElement('div');c.className='s';c.title=NAMES[id];c.innerHTML='<i></i>';ic(c.firstChild,id,36);c.onclick=()=>{hot[slot]=id;refresh();save()};ig.appendChild(c)}}
+addEventListener('keydown',e=>{if(!invO)return;if(e.code=='KeyE'){invO=false;cv.requestPointerLock()}else if(e.code=='Escape'){invO=false;$('inv').style.display='none';$('menu').style.display='flex'}});
+function rs(){const r=Math.min(devicePixelRatio||1,2);cv.width=innerWidth*r|0;cv.height=innerHeight*r|0}
+addEventListener('resize',rs);rs();
+$('play').textContent=saved?'Continue':'Play';
+$('play').onclick=()=>cv.requestPointerLock();
+$('neww').onclick=()=>{noSave=true;try{localStorage.removeItem('blocklands')}catch(e){}location.reload()};
+document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===cv;$('menu').style.display=(locked||invO)?'none':'flex';$('inv').style.display=(!locked&&invO)?'flex':'none';if(!locked){kd={};m=[0,0,0];save()}});
+document.addEventListener('mousemove',e=>{if(!locked)return;yaw-=e.movementX*.0022;pitch=clamp(pitch-e.movementY*.0022,-1.55,1.55)});
+document.addEventListener('mousedown',e=>{if(!locked)return;e.preventDefault();m[e.button]=1;cd=0;if(e.button==1&&tg){hot[slot]=tg.b;refresh()}});
+document.addEventListener('mouseup',e=>{m[e.button]=0});
+document.addEventListener('contextmenu',e=>e.preventDefault());
+document.addEventListener('wheel',e=>{if(locked)setSlot(slot+(e.deltaY>0?1:-1))});
+document.addEventListener('keydown',e=>{
+ if(!locked)return;if(e.code=='Space'||e.code=='Tab')e.preventDefault();
+ kd[e.code]=1;if(e.repeat)return;
+ if(e.code=='KeyE'){invO=true;document.exitPointerLock();return}
+ if(e.code=='F3'){e.preventDefault();dbg.style.display=dbg.style.display=='none'?'':'none'}
+ if(/^Digit[1-9]$/.test(e.code))setSlot(+e.code[5]-1);
+ if(e.code=='KeyF'){fly=!fly;vy=0}
+ if(e.code=='Space'){const n=performance.now();if(n-lastSp<300){fly=!fly;vy=0}lastSp=n}});
+document.addEventListener('keyup',e=>{delete kd[e.code]});
+addEventListener('blur',()=>{kd={};m=[0,0,0]});
+addEventListener('pagehide',save);setInterval(save,15000);
+
+let last=performance.now(),fc=0,ft=0,fps=0;const dbg=$('dbg');
+function frame(now){
+ requestAnimationFrame(frame);
+ const dt=Math.min((now-last)/1000,.1);last=now;fov+=((spr?1.36:1.22)-fov)*Math.min(1,dt*10);
+ if(locked){dayT=(dayT+dt/480)%1;const n=Math.ceil(dt/.0167);for(let i=0;i<n;i++)phys(dt/n);if(onGround&&!fly){stepD+=Math.hypot(vx,vz)*dt;if(stepD>2.4){stepD=0;snd(60+Math.random()*30,.06,.03)}}}
+ stream();aim();if(locked)act(dt);render();
+ fc++;ft+=dt;
+ if(ft>.5){fps=Math.round(fc/ft);fc=0;ft=0;const t=(dayT*24+6)%24;
+  dbg.textContent='XYZ '+P.x.toFixed(1)+' '+P.y.toFixed(1)+' '+P.z.toFixed(1)+'\nFPS '+fps+(fly?'   Flying':'')+'\nTime '+String(t|0).padStart(2,'0')+':'+String(((t%1)*60)|0).padStart(2,'0')}
+}
+requestAnimationFrame(frame);
+</script></body></html>
